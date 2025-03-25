@@ -119,7 +119,7 @@ if competition_url and not st.session_state.submitted and (competition_url != st
 if st.session_state.team_list:
     selected_team = st.selectbox("Select Team", options=st.session_state.team_list)
     user_defined_season_count = st.slider("How many seasons back?", 1, 5, 2)
-    submit_button = st.button("Submit")
+    submit_button = st.button("Submit", type="primary")
 
     if submit_button:
         st.session_state.submitted = True
