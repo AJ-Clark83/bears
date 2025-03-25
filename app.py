@@ -25,13 +25,20 @@ selected_team = None
 user_defined_season_count = None
 submit_button = False
 
+# Define a reusable Chrome driver setup function
+def get_driver():
+    options = Options()
+    custom_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36"
+    options.add_argument(f'user-agent={custom_user_agent}')
+    options.add_argument("--headless")
+    return uc.Chrome(options=options)
+
+
 # Step 2: Fetch team list and let user select
 if competition_url and not st.session_state.submitted:
     with st.spinner("Loading team list..."):
         try:
-            options = Options()
-            options.add_argument("--headless")
-            driver = uc.Chrome(options=options)
+            driver = get_driver()
             driver.get(competition_url)
             wait = WebDriverWait(driver, 10)
             team_dropdown_button = wait.until(EC.element_to_be_clickable((By.ID, "competition-matches-team")))
