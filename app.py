@@ -3,50 +3,17 @@ import pandas as pd
 import time
 import os
 import tempfile
-import chromedriver_autoinstaller
-from selenium import webdriver
+import undetected_chromedriver as uc
+from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.action_chains import ActionChains
-from bs4 import BeautifulSoup
-
-# Set up chromedriver path with local directory to avoid permission issues
-chromedriver_path = os.path.join(".", "temp_driver")
-os.makedirs(chromedriver_path, exist_ok=True)
-chromedriver_autoinstaller.install(path=chromedriver_path)
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Cricket Stats Extractor", layout="wide")
-
-# Display a logo at the top center of the page
-st.markdown(
-    """
-    <style>
-    .centered-logo {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        margin-top: -35px;
-    }
-    </style>
-    <div class="centered-logo">
-        <img src="https://raw.githubusercontent.com/AJ-Clark83/bears/refs/heads/main/Bayswater-Morley-Logo.png" alt="Bayswater Bears" width="150">
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-st.title("Play.Cricket - Cricket Stats Extractor")
-st.markdown('''This tool will extract all of the current players for a selected team, and then obtain the count by mode of dismissal, strike rate, and average for the number of seasons selected. To use the tool, 
-simply paste the **:red[competition link]** in the field below and press enter. Then choose your team from the options presented, and finally the number of  seasons to scrape stats from.  
-
-The competition link can be found on [Play.Cricket](https://play.cricket.com.au/competitions), by visiting the competitions page, and copying the link to the individual competition of interest. 
-
-**Note:** The link must take you to a page where the fixtures/ results are presented, and not a page that lists the various sub-competitions within that competition.  
-  An example link that **will work** is as follows - The John Inverarity Shield (Male Under 13s): [https://play.cricket.com.au/grade/5ba93ab9-e716-4c0e-861b-65337c17cbad?tab=matches](https://play.cricket.com.au/grade/5ba93ab9-e716-4c0e-861b-65337c17cbad?tab=matches) ''')
-st.divider()
+st.title("Cricket Stats Extractor")
+st.markdown("Paste the competition link, choose your team and seasons to scrape stats.")
 
 if "submitted" not in st.session_state:
     st.session_state.submitted = False
@@ -60,11 +27,11 @@ submit_button = False
 
 # Step 2: Fetch team list and let user select
 if competition_url and not st.session_state.submitted:
-    try:
-        with st.spinner("Loading team list..."):
+    with st.spinner("Loading team list..."):
+        try:
             options = Options()
             options.add_argument("--headless")
-            driver = webdriver.Chrome(options=options)
+            driver = uc.Chrome(options=options)
             driver.get(competition_url)
             wait = WebDriverWait(driver, 10)
             team_dropdown_button = wait.until(EC.element_to_be_clickable((By.ID, "competition-matches-team")))
@@ -74,25 +41,25 @@ if competition_url and not st.session_state.submitted:
             teams = [btn.get_attribute("label") for btn in team_buttons if btn.get_attribute("label") != "All teams"]
             driver.quit()
 
-        selected_team = st.selectbox("Select Team", options=teams)
-        user_defined_season_count = st.slider("How many seasons back?", 1, 5, 2)
-        submit_button = st.button("Submit")
+            selected_team = st.selectbox("Select Team", options=teams)
+            user_defined_season_count = st.slider("How many seasons back?", 1, 5, 2)
+            submit_button = st.button("Submit")
 
-        if submit_button:
-            st.session_state.submitted = True
-            st.session_state.competition_url = competition_url
-            st.session_state.selected_team = selected_team
-            st.session_state.user_defined_season_count = user_defined_season_count
+            if submit_button:
+                st.session_state.submitted = True
+                st.session_state.competition_url = competition_url
+                st.session_state.selected_team = selected_team
+                st.session_state.user_defined_season_count = user_defined_season_count
 
-    except Exception as e:
-        st.error("Failed to load team list. Please check the URL.")
-        st.stop()
+        except Exception as e:
+            st.error("Failed to load team list. Please check the URL.")
+            st.stop()
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def cached_scrape(competition_url, selected_team, user_defined_season_count):
     options = Options()
     options.add_argument("--headless")
-    driver = webdriver.Chrome(options=options)
+    driver = uc.Chrome(options=options)
 
     driver.get(competition_url)
     wait = WebDriverWait(driver, 10)
@@ -178,7 +145,7 @@ def cached_scrape(competition_url, selected_team, user_defined_season_count):
         df["How Out"] = df["How Out"].replace({"no": "Not Out", "rtno": "Not Out", "c": "Caught", "b": "Bowled", "lbw": "LBW", "ro": "Run Out", "hw": "Hit Wicket"})
         return df
 
-    def scrape_player(player_url, index, retry_set=None):
+    def scrape_player(player_url, season_count, retry_set=None):
         try:
             driver.get(player_url)
             wait = WebDriverWait(driver, 13)
@@ -187,7 +154,7 @@ def cached_scrape(competition_url, selected_team, user_defined_season_count):
             season_button.click()
             season_options = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "#season-options-list button.o-dropdown__item-trigger")))
             season_dfs = []
-            for i, option in enumerate(season_options[:user_defined_season_count]):
+            for i, option in enumerate(season_options[:season_count]):
                 try:
                     label = option.get_attribute("label")
                     option.click()
@@ -196,11 +163,11 @@ def cached_scrape(competition_url, selected_team, user_defined_season_count):
                     df = extract_table(soup, label)
                     if not df.empty:
                         season_dfs.append(df)
-                    if i < user_defined_season_count - 1 and len(season_options) > i + 1:
+                    if i < season_count - 1 and len(season_options) > i + 1:
                         season_button = wait.until(EC.element_to_be_clickable((By.ID, "season")))
                         season_button.click()
                         time.sleep(1)
-                except Exception as e:
+                except:
                     if retry_set is not None:
                         retry_set.add(player_url)
                     return None
@@ -210,17 +177,16 @@ def cached_scrape(competition_url, selected_team, user_defined_season_count):
                 if retry_set is not None:
                     retry_set.add(player_url)
                 return None
-        except Exception as e:
+        except:
             if retry_set is not None:
                 retry_set.add(player_url)
             return None
 
     combined_player_df = []
     retry_players = set()
-
     player_progress = st.progress(0, text="Scraping player stats...")
     for i, player in enumerate(player_links):
-        df = scrape_player(player, i, retry_players)
+        df = scrape_player(player, user_defined_season_count, retry_players)
         if df is not None:
             combined_player_df.append(df)
         player_progress.progress((i + 1) / len(player_links), text=f"Player {i+1}/{len(player_links)}")
@@ -230,7 +196,7 @@ def cached_scrape(competition_url, selected_team, user_defined_season_count):
             break
         still_failed = set()
         for player in retry_players:
-            df = scrape_player(player, 0, still_failed)
+            df = scrape_player(player, user_defined_season_count, still_failed)
             if df is not None:
                 combined_player_df.append(df)
         retry_players = still_failed
@@ -270,7 +236,7 @@ def cached_scrape(competition_url, selected_team, user_defined_season_count):
     return merged_df_at, merged_df
 
 if st.session_state.submitted:
-    with st.spinner("Preparing to scrape player statistics..."):
+    with st.spinner("Scraping stats now, this may take a moment..."):
         merged_df_at, merged_df = cached_scrape(
             st.session_state.competition_url,
             st.session_state.selected_team,
