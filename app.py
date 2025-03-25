@@ -9,7 +9,19 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.chrome.service import Service
 from bs4 import BeautifulSoup
+
+def get_chromedriver():
+    chrome_options = Options()
+    chrome_options.binary_location = "/usr/bin/chromium-browser"
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+
+    service = Service("/usr/bin/chromedriver")
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    return driver
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Cricket Stats Extractor", layout="wide")
@@ -63,7 +75,7 @@ if competition_url and not st.session_state.submitted:
         try:
             options = Options()
             options.add_argument("--headless")
-            driver = webdriver.Chrome(options=options)
+            driver = get_chromedriver()
             driver.get(competition_url)
             wait = WebDriverWait(driver, 10)
             team_dropdown_button = wait.until(EC.element_to_be_clickable((By.ID, "competition-matches-team")))
@@ -91,7 +103,7 @@ if competition_url and not st.session_state.submitted:
 def cached_scrape(competition_url, selected_team, user_defined_season_count):
     options = Options()
     options.add_argument("--headless")
-    driver = webdriver.Chrome(options=options)
+    driver = get_chromedriver()
 
     driver.get(competition_url)
     wait = WebDriverWait(driver, 10)
