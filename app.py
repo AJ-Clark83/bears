@@ -314,12 +314,12 @@ if st.session_state.submitted:
         )
 
     if merged_df_at is not None:
-        st.subheader("All Time Stats")
+        st.subheader("All Time Stats (For Selected Seasons)")
         selected_names_at = st.multiselect("Filter by Player (All Time)", options=merged_df_at['Player'].unique())
         df_display_at = merged_df_at[merged_df_at['Player'].isin(selected_names_at)] if selected_names_at else merged_df_at
         st.dataframe(df_display_at.reset_index(drop=True), use_container_width=True, hide_index=True)
 
-        st.subheader("Season Stats")
+        st.subheader("Season By Season Stats")
         selected_names_season = st.multiselect("Filter by Player (Season)", options=merged_df['Player'].unique())
         df_display_season = merged_df[merged_df['Player'].isin(selected_names_season)] if selected_names_season else merged_df
         st.dataframe(df_display_season.reset_index(drop=True), use_container_width=True, hide_index=True)
