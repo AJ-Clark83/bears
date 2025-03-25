@@ -30,13 +30,13 @@ def get_driver():
     options = Options()
     custom_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36"
     options.add_argument(f'user-agent={custom_user_agent}')
-    options.add_argument("--headless=new")
+    options.add_argument("--headless")
     return uc.Chrome(options=options)
-
 
 # Step 2: Fetch team list and let user select
 if competition_url and not st.session_state.submitted:
     with st.spinner("Loading team list..."):
+        driver = None  # Ensure driver is declared before try
         try:
             driver = get_driver()
             driver.get(competition_url)
@@ -60,8 +60,9 @@ if competition_url and not st.session_state.submitted:
 
         except Exception as e:
             st.error("Failed to load team list. Please check the URL.")
-            st.subheader("Page Source (debug)")
-            st.text_area("HTML Output", driver.page_source[:10000], height=400)
+            if driver:
+                st.subheader("Page Source (for debugging)")
+                st.text_area("HTML Output", driver.page_source[:10000], height=400)
             st.stop()
 
 @st.cache_data(ttl=86400, show_spinner=False)
