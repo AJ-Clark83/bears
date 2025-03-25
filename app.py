@@ -13,13 +13,13 @@ from selenium.webdriver.chrome.service import Service
 from bs4 import BeautifulSoup
 import undetected_chromedriver as uc
 
+# Function to start undetected Chrome
 def get_chromedriver():
     options = Options()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.binary_location = "/usr/bin/chromium"
-
     driver = uc.Chrome(options=options, headless=True)
     return driver
 
