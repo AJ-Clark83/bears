@@ -57,6 +57,12 @@ st.divider()
 if "submitted" not in st.session_state:
     st.session_state.submitted = False
 
+if "team_list" not in st.session_state:
+    st.session_state.team_list = None
+
+if "url_processed" not in st.session_state:
+    st.session_state.url_processed = None
+
 # Set up chromedriver path with local directory to avoid permission issues
 chromedriver_path = os.path.join(".", "temp_driver")
 os.makedirs(chromedriver_path, exist_ok=True)
@@ -81,7 +87,7 @@ def get_driver():
     return webdriver.Chrome(options=options)
 
 # Step 2: Fetch team list and let user select
-if competition_url and not st.session_state.submitted:
+if competition_url and not st.session_state.submitted and (competition_url != st.session_state.url_processed):
     with st.spinner("Loading team list..."):
         driver = None
         try:
@@ -93,18 +99,9 @@ if competition_url and not st.session_state.submitted:
             team_options_ul = wait.until(EC.presence_of_element_located((By.ID, "competition-matches-team-options-list")))
             team_buttons = team_options_ul.find_elements(By.CLASS_NAME, "o-dropdown__item-trigger")
             teams = [btn.get_attribute("label") for btn in team_buttons if btn.get_attribute("label") != "All teams"]
+            st.session_state.team_list = teams
+            st.session_state.url_processed = competition_url
             driver.quit()
-
-            selected_team = st.selectbox("Select Team", options=teams)
-            user_defined_season_count = st.slider("How many seasons back?", 1, 5, 2)
-            submit_button = st.button("Submit")
-
-            if submit_button:
-                st.session_state.submitted = True
-                st.session_state.competition_url = competition_url
-                st.session_state.selected_team = selected_team
-                st.session_state.user_defined_season_count = user_defined_season_count
-
         except Exception as e:
             st.error("Failed to load team list. Please check the URL.")
             if driver is not None:
@@ -117,6 +114,18 @@ if competition_url and not st.session_state.submitted:
                 finally:
                     driver.quit()
             st.stop()
+
+# Display controls if team list has been fetched
+if st.session_state.team_list:
+    selected_team = st.selectbox("Select Team", options=st.session_state.team_list)
+    user_defined_season_count = st.slider("How many seasons back?", 1, 5, 2)
+    submit_button = st.button("Submit")
+
+    if submit_button:
+        st.session_state.submitted = True
+        st.session_state.competition_url = competition_url
+        st.session_state.selected_team = selected_team
+        st.session_state.user_defined_season_count = user_defined_season_count
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def cached_scrape(competition_url, selected_team, user_defined_season_count):
