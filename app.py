@@ -82,9 +82,7 @@ if competition_url and not st.session_state.submitted:
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def cached_scrape(competition_url, selected_team, user_defined_season_count):
-    options = Options()
-    options.add_argument("--headless")
-    driver = uc.Chrome(options=options)
+    driver = get_driver()
 
     driver.get(competition_url)
     wait = WebDriverWait(driver, 10)
