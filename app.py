@@ -60,6 +60,8 @@ if competition_url and not st.session_state.submitted:
 
         except Exception as e:
             st.error("Failed to load team list. Please check the URL.")
+            st.subheader("Page Source (debug)")
+            st.text_area("HTML Output", driver.page_source[:10000], height=400)
             st.stop()
 
 @st.cache_data(ttl=86400, show_spinner=False)
