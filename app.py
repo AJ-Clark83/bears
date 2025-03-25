@@ -10,6 +10,19 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 
+# Password protection
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    password = st.text_input("Enter Password", type="password")
+    if password == st.secrets.get("app_password"):
+        st.session_state.authenticated = True
+        st.rerun()  # Updated method
+    else:
+        st.stop()
+
+
 # --- Streamlit UI ---
 st.set_page_config(page_title="Cricket Stats Extractor", layout="wide")
 
