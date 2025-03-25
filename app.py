@@ -59,11 +59,6 @@ st.divider()
 if "submitted" not in st.session_state:
     st.session_state.submitted = False
 
-# Set up chromedriver path with local directory to avoid permission issues
-chromedriver_path = os.path.join(".", "temp_driver")
-os.makedirs(chromedriver_path, exist_ok=True)
-chromedriver_autoinstaller.install(path=chromedriver_path)
-
 # Step 1: Get competition URL
 competition_url = st.text_input("**Please Enter a Competition URL and Press Enter:**")
 
