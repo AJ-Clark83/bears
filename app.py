@@ -39,7 +39,7 @@ def get_driver():
 # Step 2: Fetch team list and let user select
 if competition_url and not st.session_state.submitted:
     with st.spinner("Loading team list..."):
-        driver = None  # Ensure driver is declared before try
+        driver = None
         try:
             driver = get_driver()
             driver.get(competition_url)
@@ -63,11 +63,15 @@ if competition_url and not st.session_state.submitted:
 
         except Exception as e:
             st.error("Failed to load team list. Please check the URL.")
-            if driver:
-                st.subheader("Page Source (for debugging)")
-                page_content = driver.page_source[:10000] if driver.page_source else "No content loaded."
-                st.text_area("HTML Output", page_content, height=400)
-                driver.quit()
+            if driver is not None:
+                try:
+                    st.subheader("Page Source (for debugging)")
+                    page_content = driver.page_source[:10000] if driver.page_source else "No content loaded."
+                    st.text_area("HTML Output", page_content, height=400)
+                except:
+                    st.warning("Unable to retrieve page source for debugging.")
+                finally:
+                    driver.quit()
             st.stop()
 
 @st.cache_data(ttl=86400, show_spinner=False)
