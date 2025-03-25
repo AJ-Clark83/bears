@@ -212,7 +212,7 @@ def cached_scrape(competition_url, selected_team, user_defined_season_count):
         df = pd.DataFrame(data, columns=columns)
         df["Season"] = season
         df["Player"] = player_name
-        df["How Out"] = df["How Out"].replace({"no": "Not Out", "rtno": "Not Out", "c": "Caught", "b": "Bowled", "lbw": "LBW", "ro": "Run Out", "hw": "Hit Wicket"})
+        df["How Out"] = df["How Out"].replace({"no": "Not Out", "rtno": "Not Out", "c": "Caught", "b": "Bowled", "lbw": "LBW", "ro": "Run Out","st":"Stumped", "hw": "Hit Wicket"})
         return df
 
     def scrape_player(player_url, season_count, retry_set=None):
@@ -286,7 +286,7 @@ def cached_scrape(competition_url, selected_team, user_defined_season_count):
     batting_totals['S/R'] = batting_totals.apply(lambda row: round((row['Runs'] / row['Balls']) * 100, 2) if row['Balls'] > 0 else 0, axis=1)
     batting_totals['Avg.'] = batting_totals.apply(lambda row: round((row['Runs'] / row['Dismissed']), 2) if row['Dismissed'] > 0 else None, axis=1)
     merged_df_at = player_totals.merge(batting_totals[['Player', 'S/R', 'Avg.']], on='Player', how='left')
-    expected_cols_at = ['Player', 'Caught', 'Bowled', 'LBW', 'Run Out', 'Hit Wicket', 'Not Out', 'S/R', 'Avg.']
+    expected_cols_at = ['Player', 'Caught', 'Bowled', 'LBW', 'Run Out', 'Stumped', 'Hit Wicket', 'Not Out', 'S/R', 'Avg.']
     for col in expected_cols_at:
         if col not in merged_df_at.columns:
             merged_df_at[col] = 0
@@ -297,7 +297,7 @@ def cached_scrape(competition_url, selected_team, user_defined_season_count):
     batting_totals_season['S/R'] = batting_totals_season.apply(lambda row: round((row['Runs'] / row['Balls']) * 100, 2) if row['Balls'] > 0 else 0, axis=1)
     batting_totals_season['Avg.'] = batting_totals_season.apply(lambda row: round((row['Runs'] / row['Dismissed']), 2) if row['Dismissed'] > 0 else None, axis=1)
     merged_df = player_totals_season.merge(batting_totals_season[['Player', 'Season', 'S/R', 'Avg.']], on=['Player', 'Season'], how='left')
-    expected_cols_season = ['Player', 'Season', 'Caught', 'Bowled', 'LBW', 'Run Out', 'Hit Wicket', 'Not Out', 'S/R', 'Avg.']
+    expected_cols_season = ['Player', 'Season', 'Caught', 'Bowled', 'LBW', 'Run Out', 'Stumped', 'Hit Wicket', 'Not Out', 'S/R', 'Avg.']
     for col in expected_cols_season:
         if col not in merged_df.columns:
             merged_df[col] = 0
