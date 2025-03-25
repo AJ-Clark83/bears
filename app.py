@@ -2,16 +2,18 @@ import streamlit as st
 import pandas as pd
 import time
 import os
-import chromedriver_autoinstaller
-from selenium import webdriver
+import tempfile
+
+# NEW driver setup
+import undetected_chromedriver as uc
+
+# Selenium + Scraping
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.chrome.service import Service
+
 from bs4 import BeautifulSoup
-import undetected_chromedriver as uc
 
 # Function to start undetected Chrome
 def get_chromedriver():
