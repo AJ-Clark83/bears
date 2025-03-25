@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import time
 import os
-import tempfile
 import chromedriver_autoinstaller
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -13,8 +12,34 @@ from selenium.webdriver.chrome.options import Options
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Cricket Stats Extractor", layout="wide")
-st.title("Cricket Stats Extractor")
-st.markdown("Paste the competition link, choose your team and seasons to scrape stats.")
+
+# Display a logo at the top center of the page
+st.markdown(
+    """
+    <style>
+    .centered-logo {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: -35px;
+    }
+    </style>
+    <div class="centered-logo">
+        <img src="https://raw.githubusercontent.com/AJ-Clark83/bears/refs/heads/main/Bayswater-Morley-Logo.png" alt="Bayswater Bears" width="150">
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+st.title("Play.Cricket - Cricket Stats Extractor")
+st.markdown('''This tool will extract all of the current players for a selected team, and then obtain the count by mode of dismissal, strike rate, and average for the number of seasons selected. To use the tool, 
+simply paste the **:red[competition link]** in the field below and press enter. Then choose your team from the options presented, and finally the number of  seasons to scrape stats from.  
+
+The competition link can be found on [Play.Cricket](https://play.cricket.com.au/competitions), by visiting the competitions page, and copying the link to the individual competition of interest. 
+
+**Note:** The link must take you to a page where the fixtures/ results are presented, and not a page that lists the various sub-competitions within that competition.  
+  An example link that **will work** is as follows - The John Inverarity Shield (Male Under 13s): [https://play.cricket.com.au/grade/5ba93ab9-e716-4c0e-861b-65337c17cbad?tab=matches](https://play.cricket.com.au/grade/5ba93ab9-e716-4c0e-861b-65337c17cbad?tab=matches) ''')
+st.divider()
 
 if "submitted" not in st.session_state:
     st.session_state.submitted = False
