@@ -31,6 +31,9 @@ def get_driver():
     custom_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36"
     options.add_argument(f'user-agent={custom_user_agent}')
     options.add_argument("--headless")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--no-sandbox")
     return uc.Chrome(options=options)
 
 # Step 2: Fetch team list and let user select
@@ -60,12 +63,11 @@ if competition_url and not st.session_state.submitted:
 
         except Exception as e:
             st.error("Failed to load team list. Please check the URL.")
-            st.subheader("Page Source (debug)")
-            st.text_area("HTML Output", driver.page_source[:10000], height=400)
-            st.stop()
             if driver:
                 st.subheader("Page Source (for debugging)")
-                st.text_area("HTML Output", driver.page_source[:10000], height=400)
+                page_content = driver.page_source[:10000] if driver.page_source else "No content loaded."
+                st.text_area("HTML Output", page_content, height=400)
+                driver.quit()
             st.stop()
 
 @st.cache_data(ttl=86400, show_spinner=False)
