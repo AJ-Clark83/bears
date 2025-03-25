@@ -11,16 +11,16 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.chrome.service import Service
 from bs4 import BeautifulSoup
+import undetected_chromedriver as uc
 
 def get_chromedriver():
-    chrome_options = Options()
-    chrome_options.binary_location = "/usr/bin/chromium-browser"
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.binary_location = "/usr/bin/chromium"
 
-    service = Service("/usr/bin/chromedriver")
-    driver = webdriver.Chrome(service=service, options=chrome_options)
+    driver = uc.Chrome(options=options, headless=True)
     return driver
 
 # --- Streamlit UI ---
