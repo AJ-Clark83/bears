@@ -3,8 +3,9 @@ import pandas as pd
 import time
 import os
 import tempfile
-import undetected_chromedriver as uc
+import chromedriver_autoinstaller
 from bs4 import BeautifulSoup
+from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -17,6 +18,11 @@ st.markdown("Paste the competition link, choose your team and seasons to scrape 
 
 if "submitted" not in st.session_state:
     st.session_state.submitted = False
+
+# Set up chromedriver path with local directory to avoid permission issues
+chromedriver_path = os.path.join(".", "temp_driver")
+os.makedirs(chromedriver_path, exist_ok=True)
+chromedriver_autoinstaller.install(path=chromedriver_path)
 
 # Step 1: Get competition URL
 competition_url = st.text_input("Competition URL")
@@ -34,7 +40,7 @@ def get_driver():
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--no-sandbox")
-    return uc.Chrome(options=options)
+    return webdriver.Chrome(options=options)
 
 # Step 2: Fetch team list and let user select
 if competition_url and not st.session_state.submitted:
