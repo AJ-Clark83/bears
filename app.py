@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import time
 import os
-import chromedriver_autoinstaller
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
