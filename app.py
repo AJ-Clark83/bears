@@ -9,6 +9,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
 
 # Password protection
 if "authenticated" not in st.session_state:
@@ -63,11 +64,10 @@ if "team_list" not in st.session_state:
 if "url_processed" not in st.session_state:
     st.session_state.url_processed = None
 
-# Set up chromedriver path with local directory to avoid permission issues
-chromedriver_path = os.path.join(".", "temp_driver")
-os.makedirs(chromedriver_path, exist_ok=True)
-os.environ["PATH"] += os.pathsep + chromedriver_path
-chromedriver_autoinstaller.install(path=chromedriver_path)
+# Add Chrome repo to allow install of stable version
+os.system("wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add -")
+os.system("echo 'deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main' > /etc/apt/sources.list.d/google-chrome.list")
+os.system("apt-get update && apt-get install -y google-chrome-stable")
 
 # Step 1: Get competition URL
 competition_url = st.text_input("Competition URL")
@@ -85,7 +85,7 @@ def get_driver():
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--no-sandbox")
-    return webdriver.Chrome(options=options)
+    return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 # Step 2: Fetch team list and let user select
 if competition_url and not st.session_state.submitted and (competition_url != st.session_state.url_processed):
