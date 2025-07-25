@@ -92,8 +92,8 @@ if competition_url and not st.session_state.submitted and (competition_url != st
             wait = WebDriverWait(driver, 10)
             team_dropdown_button = wait.until(EC.element_to_be_clickable((By.ID, "competition-matches-team")))
             team_dropdown_button.click()
-            team_options_ul = wait.until(EC.presence_of_element_located((By.ID, "competition-matches-team-options-list")))
-            team_buttons = team_options_ul.find_elements(By.CLASS_NAME, "o-dropdown__item-trigger")
+            team_options_ul = wait.until(EC.presence_of_element_located((By.ID, "competition-matches-team-options")))
+            team_buttons = team_options_ul.find_elements(By.CLASS_NAME, "o-dropdown__options-list")
             teams = [btn.get_attribute("label") for btn in team_buttons if btn.get_attribute("label") != "All teams"]
             st.session_state.team_list = teams
             st.session_state.url_processed = competition_url
