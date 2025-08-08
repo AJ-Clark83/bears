@@ -320,7 +320,7 @@ if st.session_state.load_data:
                 # to include maidens, add "maidens": "sum" in the list above
 
                 # new economy rate and overs display
-                season_bowl["Economy"] = (season_bowl["balls_bowled"] / season_bowl["valid_overs"]).round(2)
+                season_bowl["Economy"] = (season_bowl["runs_conceded"] / season_bowl["valid_overs"]).round(2)
                 season_bowl["SR"] = (season_bowl["balls_bowled"] / season_bowl["wickets"]).round(2)
                 season_bowl["Overs"] = season_bowl["balls_bowled"].apply(convert_balls_to_overs)
                 season_bowl["Avg"] = (season_bowl["runs_conceded"] / season_bowl["wickets"]).round(2)
