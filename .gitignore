@@ -1,5 +1,5 @@
 app-OLD-SCRAPER.py
-.streamlit/
+.streamlit/secrets.toml
 .env
 apt.keys
 cricket_scraper_notebook.ipynb
