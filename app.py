@@ -1,15 +1,13 @@
 import streamlit as st
-import pandas as pd
-import time
+from supabase import create_client, Client
 import os
-from bs4 import BeautifulSoup
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.service import Service
+import pandas as pd
+import numpy as np
+from dotenv import load_dotenv
+
+load_dotenv()
+APP_PASSWORD = os.getenv("APP_PASSWORD") or st.secrets.get("app_password")
+
 
 # Password protection
 if "authenticated" not in st.session_state:
@@ -17,307 +15,329 @@ if "authenticated" not in st.session_state:
 
 if not st.session_state.authenticated:
     password = st.text_input("Enter Password", type="password")
-    if password == st.secrets.get("app_password"):
+    if password == APP_PASSWORD:
         st.session_state.authenticated = True
         st.rerun()  # Updated method
     else:
         st.stop()
 
+# ─────────────────────────────
+# Set Wide Layout
+# ─────────────────────────────
+st.set_page_config(layout="wide")
 
-# --- Streamlit UI ---
-st.set_page_config(page_title="Cricket Stats Extractor", layout="wide")
+# ─────────────────────────────
+# Supabase Read-Only Client
+# ─────────────────────────────
+SUPABASE_URL = os.getenv("SUPABASE_URL") or st.secrets["SUPABASE_URL"]
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY") or st.secrets["SUPABASE_ANON_KEY"]
+supabase_anon: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-# Display a logo at the top center of the page
-st.markdown(
-    """
-    <style>
-    .centered-logo {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        margin-top: -35px;
-    }
-    </style>
-    <div class="centered-logo">
-        <img src="https://raw.githubusercontent.com/AJ-Clark83/bears/refs/heads/main/Bayswater-Morley-Logo.png" alt="Bayswater Bears" width="150">
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+# ─────────────────────────────
+# Bowling Economy Rate Function
+# ─────────────────────────────
+def convert_decimal_overs_to_float(overs_series):
+    """Convert cricket-style decimal overs (e.g. 3.5) to float overs (e.g. 3.8333)"""
+    overs_series = overs_series.astype(float).fillna(0)
+    full_overs = overs_series.astype(int)
+    balls = ((overs_series - full_overs) * 10).round().astype(int)
+    return full_overs + (balls / 6)
+
+# ─────────────────────────────
+# Bowling Over Display (Fix 15.9 overs)
+# ─────────────────────────────
+def convert_overs_to_balls(overs_series):
+    """Convert overs like 3.5 to total balls."""
+    overs = overs_series.astype(float).fillna(0)
+    whole = overs.astype(int)
+    decimal = (overs - whole).round(1) * 10
+    return (whole * 6 + decimal).astype(int)
+
+def convert_balls_to_overs(total_balls):
+    """Convert balls (int) to overs in cricket format."""
+    overs = total_balls // 6
+    balls = total_balls % 6
+    return overs + balls / 10
+
+# ─────────────────────────────
+# Column Reorder Function
+# ─────────────────────────────
+def reorder_columns(df: pd.DataFrame, desired_order: list) -> pd.DataFrame:
+    actual = [col for col in desired_order if col in df.columns]
+    return df[actual]
+
+# ─────────────────────────────
+# Page Header and Description
+# ─────────────────────────────
+st.markdown("""
+<style>
+.centered-logo {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: -35px;
+}
+</style>
+<div class="centered-logo">
+    <img src="https://raw.githubusercontent.com/AJ-Clark83/bears/refs/heads/main/Bayswater-Morley-Logo.png" alt="Bayswater Bears" width="150">
+</div>
+""", unsafe_allow_html=True)
 
 st.title("Play.Cricket - Cricket Stats Extractor")
-st.markdown('''This tool will extract all of the current players for a selected team, and then obtain the count by mode of dismissal, strike rate, and average for the number of seasons selected. To use the tool, 
-simply paste the **:red[competition link]** in the field below and press enter. Then choose your team from the options presented, and finally the number of  seasons to scrape stats from.  
-
-The competition link can be found on [Play.Cricket](https://play.cricket.com.au/competitions), by visiting the competitions page, and copying the link to the individual competition of interest. 
-
-**Note:** The link must take you to a page where the fixtures/ results are presented, and not a page that lists the various sub-competitions within that competition.  
-  An example link that **will work** is as follows - The John Inverarity Shield (Male Under 13s): [https://play.cricket.com.au/grade/5ba93ab9-e716-4c0e-861b-65337c17cbad?tab=matches](https://play.cricket.com.au/grade/5ba93ab9-e716-4c0e-861b-65337c17cbad?tab=matches) ''')
+st.markdown('''This tool enhances Play.Cricket player data for both batting and bowling statistics and is updated weekly during the WA Premier Cricket Season''')
 st.divider()
 
-if "submitted" not in st.session_state:
-    st.session_state.submitted = False
+# ─────────────────────────────
+# Season, Grade and Team Selection
+# ─────────────────────────────
+@st.cache_data(ttl=300)
+def get_player_links():
+    res = supabase_anon.table("player_links").select("player_name,team,season,grade,player_url").execute()
+    return pd.DataFrame(res.data)
 
-if "team_list" not in st.session_state:
-    st.session_state.team_list = None
+player_links_df = get_player_links()
 
-if "url_processed" not in st.session_state:
-    st.session_state.url_processed = None
+# Select Season
+seasons = sorted(player_links_df["season"].dropna().unique())
+season = st.selectbox("Select Season", seasons)
 
-# Step 1: Get competition URL
-competition_url = st.text_input("Competition URL")
+# Select Grade based on Season
+grades = sorted(
+    player_links_df[player_links_df["season"] == season]["grade"]
+    .dropna()
+    .unique()
+)
+grade = st.selectbox("Select Grade", grades)
 
-selected_team = None
-user_defined_season_count = None
-submit_button = False
+# Select Team based on Season + Grade (and exclude 'BAY')
+teams = sorted(
+    player_links_df[
+        (player_links_df["season"] == season) &
+        (player_links_df["grade"] == grade)
+    ]["team"]
+    .dropna()
+    .unique()
+)
+teams = [t for t in teams if t != "BAY"]
+team = st.selectbox("Select Team", teams)
 
-# Define a reusable Chrome driver setup function
-def get_driver():
-    options = Options()
-    custom_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36"
-    options.add_argument(f'user-agent={custom_user_agent}')
-    options.add_argument("--headless")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--no-sandbox")
-    return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+# To include BAY replace teams above with this:
+#teams = sorted(player_links_df[player_links_df["season"] == season]["team"].dropna().unique())
+#team = st.selectbox("Select Team", teams)
 
-# Step 2: Fetch team list and let user select
-if competition_url and not st.session_state.submitted and (competition_url != st.session_state.url_processed):
-    with st.spinner("Loading team list..."):
-        driver = None
-        try:
-            driver = get_driver()
-            driver.get(competition_url)
-            wait = WebDriverWait(driver, 10)
-            team_dropdown_button = wait.until(EC.element_to_be_clickable((By.ID, "competition-matches-team")))
-            team_dropdown_button.click()
-            team_options_ul = wait.until(EC.presence_of_element_located((By.ID, "competition-matches-team-options-list")))
-            team_buttons = team_options_ul.find_elements(By.CLASS_NAME, "o-dropdown__item-trigger")
-            teams = [btn.get_attribute("label") for btn in team_buttons if btn.get_attribute("label") != "All teams"]
-            st.session_state.team_list = teams
-            st.session_state.url_processed = competition_url
-            driver.quit()
-        except Exception as e:
-            st.error("Failed to load team list. Please check the URL.")
-            if driver is not None:
-                try:
-                    st.subheader("Page Source (for debugging)")
-                    page_content = driver.page_source[:10000] if driver.page_source else "No content loaded."
-                    st.text_area("HTML Output", page_content, height=400)
-                except:
-                    st.warning("Unable to retrieve page source for debugging.")
-                finally:
-                    driver.quit()
-            st.stop()
+# Maintain state after clicking 'Get Player Data'
+if "load_data" not in st.session_state:
+    st.session_state.load_data = False
 
-# Display controls if team list has been fetched
-if st.session_state.team_list:
-    selected_team = st.selectbox("Select Team", options=st.session_state.team_list)
-    user_defined_season_count = st.slider("How many seasons back?", 1, 5, 2)
-    submit_button = st.button("Submit", type="primary")
+if st.button("Get Player Data"):
+    st.session_state.load_data = True
 
-    if submit_button:
-        st.session_state.submitted = True
-        st.session_state.competition_url = competition_url
-        st.session_state.selected_team = selected_team
-        st.session_state.user_defined_season_count = user_defined_season_count
+if st.session_state.load_data:
+    with st.spinner("Fetching data..."):
+        selected_links = player_links_df[
+            (player_links_df["season"] == season) &
+            (player_links_df["team"] == team) &
+            (player_links_df["grade"] == grade)
+        ][["player_name", "player_url"]].drop_duplicates()
 
-@st.cache_data(ttl=86400, show_spinner=False)
-def cached_scrape(competition_url, selected_team, user_defined_season_count):
-    driver = get_driver()
+        player_urls = selected_links["player_url"].unique().tolist()
 
-    driver.get(competition_url)
-    wait = WebDriverWait(driver, 10)
-    team_dropdown_button = wait.until(EC.element_to_be_clickable((By.ID, "competition-matches-team")))
-    team_dropdown_button.click()
-    team_options_ul = wait.until(EC.presence_of_element_located((By.ID, "competition-matches-team-options-list")))
-    team_buttons = team_options_ul.find_elements(By.CLASS_NAME, "o-dropdown__item-trigger")
+        # ─────────── Batting Data ───────────
+        res = supabase_anon.table("player_data_batting").select("*").in_("player_link", player_urls).execute()
+        batting_df = pd.DataFrame(res.data)
 
-    team_abbrev = selected_team[:3].upper()
-    for btn in team_buttons:
-        if btn.get_attribute("label") == selected_team:
-            btn.click()
-            break
-    time.sleep(3)
+        if not batting_df.empty:
+            # Ensure player_name exists
+            if "player_name" not in batting_df.columns or batting_df["player_name"].isna().all():
+                batting_df = batting_df.merge(
+                    selected_links,
+                    how="left",
+                    left_on="player_link",
+                    right_on="player_url",
+                    validate="many_to_one"
+                )
 
-    match_links = []
-    match_card_anchors = driver.find_elements(By.CSS_SELECTOR, "a.o-play-match-card__link")
-    for a in match_card_anchors:
-        match_links.append(a.get_attribute("href"))
+            # ─────── Filter Section ───────
+            st.subheader("Filter Data")
+            #OLD FILTERING METHOD - CHOOSE ONE ONLY - OPTION 1
+            # selected_seasons = st.multiselect("Filter by Season", sorted(batting_df["season"].dropna().unique()), default=sorted(batting_df["season"].dropna().unique()))
 
-    player_links = set()
-    def get_player_links(match_url):
-        try:
-            driver.get(match_url)
-            wait = WebDriverWait(driver, 10)
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "o-toggle__label")))
-            toggle_labels = driver.find_elements(By.CLASS_NAME, "o-toggle__label")
-            for label in toggle_labels:
-                if team_abbrev in label.text:
-                    label.click()
-                    time.sleep(2)
-                    break
-            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table.w-play-match-centre-scorecard__table--batting")))
-            batting_table = driver.find_element(By.CSS_SELECTOR, "table.w-play-match-centre-scorecard__table--batting")
-            rows = batting_table.find_elements(By.CSS_SELECTOR, "a.w-play-match-centre-scorecard__player-name--link")
-            for link in rows:
-                href = link.get_attribute("href")
-                if href:
-                    player_links.add(href + '?tab=matches')
-        except:
-            pass
+            # NEW FILTERING METHOD  - CHOOSE ONE ONLY - OPTION 2
+            all_seasons = sorted(batting_df["season"].dropna().unique())
+            selected_seasons = st.multiselect("Filter by Season", all_seasons)
 
-    st.subheader("Scraping Progress")
-    match_progress = st.progress(0, text="Collecting player links...")
-    for i, match in enumerate(match_links):
-        get_player_links(match)
-        match_progress.progress((i + 1) / len(match_links), text=f"Match {i+1}/{len(match_links)}")
+            # Show all seasons by default if none selected
+            if not selected_seasons:
+                selected_seasons = all_seasons
+            #END NEW FILTERING METHOD
 
-    def extract_table(soup, season):
-        name_tag = soup.find("h1", class_="w-play-player-header__player-name")
-        player_name = name_tag.get_text(strip=True) if name_tag else "Unknown Player"
-        table = soup.find("table", class_="o-table__table")
-        if not table or not table.find("tbody"):
-            return pd.DataFrame()
-        rows = table.find("tbody").find_all("tr")
-        data = []
-        for row in rows:
-            if "Did not bat" in row.get_text():
-                continue
-            heading = row.find("th")
-            cells = row.find_all("td")
-            match_name = heading.find("a").get_text(strip=True) if heading else ""
-            grade = heading.find("span").get_text(strip=True) if heading and heading.find("span") else ""
-            values = []
-            for td in cells:
-                divs = td.find_all("div", class_="w-play-player-matches__inning-line")
-                if not divs:
-                    continue
-                div = divs[0]
-                tooltip = div.find("div", class_="o-tooltip")
-                if tooltip:
-                    abbrev = tooltip.contents[0].strip() if tooltip.contents else ""
-                    values.append(abbrev)
-                else:
-                    values.append(div.get_text(strip=True))
-            if len(values) == 7:
-                inn, runs, balls, fours, sixes, sr, how_out = values
-                data.append([match_name, grade, inn, runs, balls, fours, sixes, sr, how_out])
-        columns = ["Match", "Grade", "Innings", "Runs", "Balls", "4s", "6s", "SR", "How Out"]
-        df = pd.DataFrame(data, columns=columns)
-        df["Season"] = season
-        df["Player"] = player_name
-        df["How Out"] = df["How Out"].replace({"no": "Not Out", "rtno": "Not Out", "c": "Caught", "b": "Bowled", "lbw": "LBW", "ro": "Run Out","st":"Stumped", "hw": "Hit Wicket"})
-        return df
+            filtered = batting_df[batting_df["season"].isin(selected_seasons)]
 
-    def scrape_player(player_url, season_count, retry_set=None):
-        try:
-            driver.get(player_url)
-            wait = WebDriverWait(driver, 13)
-            wait.until(EC.element_to_be_clickable((By.ID, "season")))
-            season_button = driver.find_element(By.ID, "season")
-            season_button.click()
-            season_options = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "#season-options-list button.o-dropdown__item-trigger")))
-            season_dfs = []
-            for i, option in enumerate(season_options[:season_count]):
-                try:
-                    label = option.get_attribute("label")
-                    option.click()
-                    time.sleep(2)
-                    soup = BeautifulSoup(driver.page_source, "html.parser")
-                    df = extract_table(soup, label)
-                    if not df.empty:
-                        season_dfs.append(df)
-                    if i < season_count - 1 and len(season_options) > i + 1:
-                        season_button = wait.until(EC.element_to_be_clickable((By.ID, "season")))
-                        season_button.click()
-                        time.sleep(1)
-                except:
-                    if retry_set is not None:
-                        retry_set.add(player_url)
-                    return None
-            if season_dfs:
-                return pd.concat(season_dfs, ignore_index=True)
-            else:
-                if retry_set is not None:
-                    retry_set.add(player_url)
-                return None
-        except:
-            if retry_set is not None:
-                retry_set.add(player_url)
-            return None
+            numeric_fields = ["runs", "balls", "4s", "6s", "innings"]
+            for col in numeric_fields:
+                filtered[col] = pd.to_numeric(filtered[col], errors="coerce").fillna(0)
 
-    combined_player_df = []
-    retry_players = set()
-    player_progress = st.progress(0, text="Scraping player stats...")
-    for i, player in enumerate(player_links):
-        df = scrape_player(player, user_defined_season_count, retry_players)
-        if df is not None:
-            combined_player_df.append(df)
-        player_progress.progress((i + 1) / len(player_links), text=f"Player {i+1}/{len(player_links)}")
+            # ─────── Table 1: Overall Batting Summary ───────
+            st.subheader("Overall Batting Summary")
+            st.markdown("**How Out, Average, Strike Rate and Boundaries Per Innings**")
+            overall = filtered.groupby("player_name").agg({
+                "how_out": lambda x: x.value_counts().to_dict(),
+                "4s": "sum", "6s": "sum", "runs": "sum",
+                "balls": "sum", "innings": "sum"
+            }).reset_index()
 
-    for attempt in range(3):
-        if not retry_players:
-            break
-        still_failed = set()
-        for player in retry_players:
-            df = scrape_player(player, user_defined_season_count, still_failed)
-            if df is not None:
-                combined_player_df.append(df)
-        retry_players = still_failed
+            dismissal_types = set()
+            for d in overall["how_out"]:
+                dismissal_types.update(d.keys())
+            for dtype in dismissal_types:
+                overall[dtype] = overall["how_out"].apply(lambda x: x.get(dtype, 0))
+            overall.drop(columns="how_out", inplace=True)
 
-    driver.quit()
+            overall["SR"] = ((overall["runs"] / overall["balls"]) * 100).round(2).replace([float("inf"), -float("inf")], 0)
+            overall["Average"] = filtered.groupby("player_name")["runs"].mean().round(2).reset_index(drop=True)
+            overall["Avg. 4s per inns."] = (overall["4s"] / overall["innings"]).round(2)
+            overall["Avg. 6s per inns."] = (overall["6s"] / overall["innings"]).round(2)
 
-    if not combined_player_df:
-        return None, None
+            # overall_bowl["Economy"] = (overall_bowl["runs_conceded"] / overall_bowl["overs"]).round(2).replace([float("inf"), -float("inf")], 0) #original wrong formula
+            overall.rename(columns={
+                "innings":"Innings"
 
-    final_combined = pd.concat(combined_player_df, ignore_index=True)
-    final_combined['Runs'] = pd.to_numeric(final_combined['Runs'], errors='coerce')
-    final_combined['Balls'] = pd.to_numeric(final_combined['Balls'], errors='coerce')
-    final_combined['Dismissed'] = final_combined['How Out'].apply(lambda x: 0 if x == 'Not Out' else 1)
+            }, inplace=True)
 
-    player_totals = final_combined.groupby(['Player', 'How Out'])['Match'].count().unstack(fill_value=0).reset_index()
-    batting_totals = final_combined.groupby(['Player']).agg({'Runs': 'sum', 'Balls': 'sum', 'Dismissed': 'sum'}).reset_index()
-    batting_totals['S/R'] = batting_totals.apply(lambda row: round((row['Runs'] / row['Balls']) * 100, 2) if row['Balls'] > 0 else 0, axis=1)
-    batting_totals['Avg.'] = batting_totals.apply(lambda row: round((row['Runs'] / row['Dismissed']), 2) if row['Dismissed'] > 0 else None, axis=1)
-    merged_df_at = player_totals.merge(batting_totals[['Player', 'S/R', 'Avg.']], on='Player', how='left')
-    expected_cols_at = ['Player', 'Caught', 'Bowled', 'LBW', 'Run Out', 'Stumped', 'Hit Wicket', 'Not Out', 'S/R', 'Avg.']
-    for col in expected_cols_at:
-        if col not in merged_df_at.columns:
-            merged_df_at[col] = 0
-    merged_df_at = merged_df_at[expected_cols_at]
+            st.dataframe(overall.drop(columns=["runs", "balls", "4s", "6s"]).sort_values("Average", ascending=False), use_container_width=True, hide_index=True)
 
-    player_totals_season = final_combined.groupby(['Player', 'Season', 'How Out'])['Match'].count().unstack(fill_value=0).reset_index()
-    batting_totals_season = final_combined.groupby(['Player', 'Season']).agg({'Runs': 'sum', 'Balls': 'sum', 'Dismissed': 'sum'}).reset_index()
-    batting_totals_season['S/R'] = batting_totals_season.apply(lambda row: round((row['Runs'] / row['Balls']) * 100, 2) if row['Balls'] > 0 else 0, axis=1)
-    batting_totals_season['Avg.'] = batting_totals_season.apply(lambda row: round((row['Runs'] / row['Dismissed']), 2) if row['Dismissed'] > 0 else None, axis=1)
-    merged_df = player_totals_season.merge(batting_totals_season[['Player', 'Season', 'S/R', 'Avg.']], on=['Player', 'Season'], how='left')
-    expected_cols_season = ['Player', 'Season', 'Caught', 'Bowled', 'LBW', 'Run Out', 'Stumped', 'Hit Wicket', 'Not Out', 'S/R', 'Avg.']
-    for col in expected_cols_season:
-        if col not in merged_df.columns:
-            merged_df[col] = 0
-    merged_df = merged_df[expected_cols_season]
+            # ─────── Table 2: Season-by-Season Batting Stats ───────
+            st.subheader("Season-by-Season Batting Stats")
+            st.markdown("**Season Based Statistics on: How Out, Average, Strike Rate and Boundaries Per Innings**")
 
-    return merged_df_at, merged_df
+            player_options = sorted(filtered["player_name"].dropna().unique())
+            selected_players_bat = st.multiselect("Select Players (Batting Table)", player_options, default=[])
 
-if st.session_state.submitted:
-    with st.spinner("Scraping stats now, this may take a moment..."):
-        merged_df_at, merged_df = cached_scrape(
-            st.session_state.competition_url,
-            st.session_state.selected_team,
-            st.session_state.user_defined_season_count
-        )
+            season_df = filtered.copy()
+            if selected_players_bat:
+                season_df = season_df[season_df["player_name"].isin(selected_players_bat)]
 
-    if merged_df_at is not None:
-        st.subheader("All Time Stats (For Selected Seasons)")
-        selected_names_at = st.multiselect("Filter by Player (All Time)", options=merged_df_at['Player'].unique())
-        df_display_at = merged_df_at[merged_df_at['Player'].isin(selected_names_at)] if selected_names_at else merged_df_at
-        st.dataframe(df_display_at.reset_index(drop=True), use_container_width=True, hide_index=True)
+            season_df = season_df.groupby(["player_name", "season"]).agg({
+                "how_out": lambda x: x.value_counts().to_dict(),
+                "4s": "sum", "6s": "sum", "runs": "sum",
+                "balls": "sum", "innings": "sum"
+            }).reset_index()
 
-        st.subheader("Season By Season Stats")
-        selected_names_season = st.multiselect("Filter by Player (Season)", options=merged_df['Player'].unique())
-        df_display_season = merged_df[merged_df['Player'].isin(selected_names_season)] if selected_names_season else merged_df
-        st.dataframe(df_display_season.reset_index(drop=True), use_container_width=True, hide_index=True)
-    else:
-        st.error("No player data was extracted.")
+            for dtype in dismissal_types:
+                season_df[dtype] = season_df["how_out"].apply(lambda x: x.get(dtype, 0))
+            season_df.drop(columns="how_out", inplace=True)
+
+            season_df["SR"] = ((season_df["runs"] / season_df["balls"]) * 100).round(2).replace([float("inf"), -float("inf")], 0)
+            season_df["Average"] = filtered.groupby(["player_name", "season"])["runs"].mean().round(2).reset_index(drop=True)
+            season_df["Avg. 4s per inns."] = (season_df["4s"] / season_df["innings"]).round(2)
+            season_df["Avg. 6s per inns."] = (season_df["6s"] / season_df["innings"]).round(2)
+
+            st.dataframe(season_df.drop(columns=["runs", "balls", "4s", "6s"]).sort_values(["player_name", "season"]), use_container_width=True, hide_index=True)
+
+            # Batting and Bowling Divider
+            st.divider()
+
+            # ─────── Table 3: Overall Bowling Summary ───────
+            st.subheader("Overall Bowling Summary")
+            st.markdown("**Statistics on: Dismissal Types by Bowler**")
+            res_bowl = supabase_anon.table("player_data_bowling").select("*").in_("player_link", player_urls).execute()
+            bowling_df = pd.DataFrame(res_bowl.data)
+
+            if not bowling_df.empty:
+                if "player_name" not in bowling_df.columns or bowling_df["player_name"].isna().all():
+                    bowling_df = bowling_df.merge(
+                        selected_links,
+                        how="left",
+                        left_on="player_link",
+                        right_on="player_url",
+                        validate="many_to_one"
+                    )
+
+                for col in ["innings", "overs", "wickets", "runs_conceded", "maidens", "top_4_w", "bottom_4_w", "bowled", "caught", "lbw", "c_and_b", "stumped", "other_wicket"]:
+                    bowling_df[col] = pd.to_numeric(bowling_df[col], errors="coerce").fillna(0)
+
+                # Create temporary column for bowling enconomy
+                bowling_df["valid_overs"] = convert_decimal_overs_to_float(bowling_df["overs"])
+                # calcualte balls bowled to show overs correctly
+                bowling_df["balls_bowled"] = convert_overs_to_balls(bowling_df["overs"])
+
+                overall_bowl = bowling_df.groupby("player_name").agg({
+                    "innings": "sum", "balls_bowled": "sum", "runs_conceded": "sum",
+                    "wickets": "sum", "top_4_w": "sum",
+                    "bottom_4_w": "sum", "bowled": "sum", "caught": "sum",
+                    "lbw": "sum", "c_and_b": "sum", "stumped": "sum",
+                    "valid_overs": "sum","other_wicket": "sum"
+                }).reset_index() # include maidens by adding "maidens": "sum" above
+
+                # new economy rate and overs display
+                overall_bowl["Economy"] = (overall_bowl["runs_conceded"] / overall_bowl["valid_overs"]).round(2)
+                overall_bowl["SR"] = (overall_bowl["balls_bowled"] / overall_bowl["wickets"]).round(2)
+                overall_bowl["Overs"] = overall_bowl["balls_bowled"].apply(convert_balls_to_overs)
+                overall_bowl["Avg"] = (overall_bowl["runs_conceded"] / overall_bowl["wickets"]).round(2)
+
+                #overall_bowl["Economy"] = (overall_bowl["runs_conceded"] / overall_bowl["overs"]).round(2).replace([float("inf"), -float("inf")], 0) #original wrong formula
+                overall_bowl.rename(columns={
+                    "top_4_w": "Top 4 Wickets", "bottom_4_w": "Tail Wickets",
+                    "c_and_b": "C&B", "other_wicket": "Other","runs_conceded": "Runs Conceded","stumped": "Stumped",
+                    "innings": "Innings", "overs": "Overs", "wickets": "Wickets", "lbw":"LBW","bowled":"Bowled","caught":"Caught"
+
+                }, inplace=True)
+
+                #### TEST BLOCK COLUMN REORDER
+                desired_bowl_cols = [
+                    "player_name", "Innings", "Overs","Wickets","Avg" ,"Runs Conceded", "Economy",
+                    "SR", "Top 4 Wickets", "Tail Wickets", "Bowled", "Caught", "LBW", "C&B", "Stumped", "Other", "valid_overs", "balls_bowled"
+                ] # maidens to be added here if included in groupby statement
+
+                overall_bowl = reorder_columns(overall_bowl, desired_bowl_cols)
+
+                # Drop the valid over column and show the dataframe
+                st.dataframe(overall_bowl.drop(columns=["valid_overs","balls_bowled","Runs Conceded"]).sort_values("Wickets", ascending=False), use_container_width=True, hide_index=True)
+
+                # ─────── Table 4: Season-by-Season Bowling Summary ───────
+                st.subheader("Season-by-Season Bowling Stats")
+                st.markdown("**Season Based Statistics on: Dismissal Types by Bowler**")
+
+                player_options_bowl = sorted(bowling_df["player_name"].dropna().unique())
+                selected_players_bowl = st.multiselect("Select Players (Bowling Table)", player_options_bowl, default=[])
+
+                season_bowl = bowling_df.copy()
+                if selected_players_bowl:
+                    season_bowl = season_bowl[season_bowl["player_name"].isin(selected_players_bowl)]
+
+                # Create temporary column for bowling enconomy
+                season_bowl["valid_overs"] = convert_decimal_overs_to_float(season_bowl["overs"])
+                # calcualte balls bowled to show overs correctly
+                season_bowl["balls_bowled"] = convert_overs_to_balls(season_bowl["overs"])
+
+                season_bowl = season_bowl.groupby(["player_name", "season"]).agg({
+                    "innings": "sum", "balls_bowled": "sum", "runs_conceded": "sum",
+                    "wickets": "sum", "top_4_w": "sum",
+                    "bottom_4_w": "sum", "bowled": "sum", "caught": "sum",
+                    "lbw": "sum", "c_and_b": "sum", "stumped": "sum",
+                    "valid_overs": "sum","other_wicket": "sum"
+                }).reset_index()
+                # to include maidens, add "maidens": "sum" in the list above
+
+                # new economy rate and overs display
+                season_bowl["Economy"] = (season_bowl["balls_bowled"] / season_bowl["valid_overs"]).round(2)
+                season_bowl["SR"] = (season_bowl["balls_bowled"] / season_bowl["wickets"]).round(2)
+                season_bowl["Overs"] = season_bowl["balls_bowled"].apply(convert_balls_to_overs)
+                season_bowl["Avg"] = (season_bowl["runs_conceded"] / season_bowl["wickets"]).round(2)
+
+                season_bowl.rename(columns={
+                    "top_4_w": "Top 4 Wickets", "bottom_4_w": "Tail Wickets",
+                    "c_and_b": "C&B", "other_wicket": "Other","runs_conceded": "Runs Conceded","stumped": "Stumped",
+                    "innings": "Innings", "wickets": "Wickets", "lbw":"LBW","bowled":"Bowled","caught":"Caught",
+
+                }, inplace=True)
+
+                #### TEST BLOCK COLUMN REORDER
+                desired_bowl_season_cols = [
+                    "player_name", "season", "Innings", "Overs", "Wickets","Avg" ,"Runs Conceded", "Economy",
+                    "SR","Top 4 Wickets", "Tail Wickets", "Bowled", "Caught", "LBW", "C&B", "Stumped", "Other", "valid_overs", "balls_bowled"
+                ] #Include "maidens" here to display if added to the groupby statement
+
+                season_bowl = reorder_columns(season_bowl, desired_bowl_season_cols)
+
+                st.dataframe(season_bowl.drop(columns=["valid_overs","balls_bowled","Runs Conceded"]).sort_values(["player_name", "season"]), use_container_width=True, hide_index=True)
