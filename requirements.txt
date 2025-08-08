@@ -1,7 +1,5 @@
 streamlit
 pandas
-selenium
 numpy
-os
 supabase
 
