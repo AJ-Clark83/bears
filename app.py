@@ -3,7 +3,7 @@ from supabase import create_client, Client
 import os
 import pandas as pd
 import numpy as np
-from dotenv import load_dotenv
+#from dotenv import load_dotenv - UNCOMMENT WITH LOCAL DEV
 
 load_dotenv()
 APP_PASSWORD = os.getenv("APP_PASSWORD") or st.secrets.get("app_password")
