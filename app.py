@@ -3,11 +3,10 @@ from supabase import create_client, Client
 import os
 import pandas as pd
 import numpy as np
-#from dotenv import load_dotenv # UNCOMMENT WITH LOCAL DEV
+# from dotenv import load_dotenv # UNCOMMENT WITH LOCAL DEV
 
 # load_dotenv() #  - UNCOMMENT WITH LOCAL DEV
 APP_PASSWORD = os.getenv("APP_PASSWORD") or st.secrets.get("app_password")
-
 
 # Password protection
 if "authenticated" not in st.session_state:
@@ -92,7 +91,10 @@ st.divider()
 # ─────────────────────────────
 @st.cache_data(ttl=300)
 def get_player_links():
-    res = supabase_anon.table("player_links").select("player_name,team,season,grade,player_url").execute()
+    # Minimal change: include player_id so we can fetch *all seasons* for the same players.
+    res = supabase_anon.table("player_links").select(
+        "player_name,team,season,grade,player_url,player_id"
+    ).execute()
     return pd.DataFrame(res.data)
 
 player_links_df = get_player_links()
@@ -122,8 +124,8 @@ teams = [t for t in teams if t != "BAY"]
 team = st.selectbox("Select Team", teams)
 
 # To include BAY replace teams above with this:
-#teams = sorted(player_links_df[player_links_df["season"] == season]["team"].dropna().unique())
-#team = st.selectbox("Select Team", teams)
+# teams = sorted(player_links_df[player_links_df["season"] == season]["team"].dropna().unique())
+# team = st.selectbox("Select Team", teams)
 
 # Maintain state after clicking 'Get Player Data'
 if "load_data" not in st.session_state:
@@ -134,32 +136,33 @@ if st.button("Get Player Data"):
 
 if st.session_state.load_data:
     with st.spinner("Fetching data..."):
+        # SAME player selection as before (do not change returned players)
         selected_links = player_links_df[
             (player_links_df["season"] == season) &
             (player_links_df["team"] == team) &
             (player_links_df["grade"] == grade)
-        ][["player_name", "player_url"]].drop_duplicates()
+        ][["player_name", "player_url", "player_id"]].drop_duplicates()
 
-        player_urls = selected_links["player_url"].unique().tolist()
+        # Only change: use player_id to pull *full history* for those players.
+        player_ids = selected_links["player_id"].dropna().unique().tolist()
 
-        # ─────────── Batting Data ───────────
-        res = supabase_anon.table("player_data_batting").select("*").in_("player_link", player_urls).execute()
+        # ─────────── Batting Data (use player_id to fetch all seasons) ───────────
+        res = supabase_anon.table("player_data_batting").select("*").in_("player_id", player_ids).execute()
         batting_df = pd.DataFrame(res.data)
 
         if not batting_df.empty:
-            # Ensure player_name exists
+            # Ensure player_name exists (merge on player_id, not link)
             if "player_name" not in batting_df.columns or batting_df["player_name"].isna().all():
                 batting_df = batting_df.merge(
-                    selected_links,
+                    selected_links[["player_id", "player_name"]].drop_duplicates(),
                     how="left",
-                    left_on="player_link",
-                    right_on="player_url",
+                    on="player_id",
                     validate="many_to_one"
                 )
 
             # ─────── Filter Section ───────
             st.subheader("Filter Data")
-            #OLD FILTERING METHOD - CHOOSE ONE ONLY - OPTION 1
+            # OLD FILTERING METHOD - CHOOSE ONE ONLY - OPTION 1
             # selected_seasons = st.multiselect("Filter by Season", sorted(batting_df["season"].dropna().unique()), default=sorted(batting_df["season"].dropna().unique()))
 
             # NEW FILTERING METHOD  - CHOOSE ONE ONLY - OPTION 2
@@ -169,7 +172,7 @@ if st.session_state.load_data:
             # Show all seasons by default if none selected
             if not selected_seasons:
                 selected_seasons = all_seasons
-            #END NEW FILTERING METHOD
+            # END NEW FILTERING METHOD
 
             filtered = batting_df[batting_df["season"].isin(selected_seasons)]
 
@@ -198,13 +201,12 @@ if st.session_state.load_data:
             overall["Avg. 4s per inns."] = (overall["4s"] / overall["innings"]).round(2)
             overall["Avg. 6s per inns."] = (overall["6s"] / overall["innings"]).round(2)
 
-            # overall_bowl["Economy"] = (overall_bowl["runs_conceded"] / overall_bowl["overs"]).round(2).replace([float("inf"), -float("inf")], 0) #original wrong formula
-            overall.rename(columns={
-                "innings":"Innings"
+            overall.rename(columns={"innings": "Innings"}, inplace=True)
 
-            }, inplace=True)
-
-            st.dataframe(overall.drop(columns=["runs", "balls", "4s", "6s"]).sort_values("Average", ascending=False), use_container_width=True, hide_index=True)
+            st.dataframe(
+                overall.drop(columns=["runs", "balls", "4s", "6s"]).sort_values("Average", ascending=False),
+                use_container_width=True, hide_index=True
+            )
 
             # ─────── Table 2: Season-by-Season Batting Stats ───────
             st.subheader("Season-by-Season Batting Stats")
@@ -232,7 +234,10 @@ if st.session_state.load_data:
             season_df["Avg. 4s per inns."] = (season_df["4s"] / season_df["innings"]).round(2)
             season_df["Avg. 6s per inns."] = (season_df["6s"] / season_df["innings"]).round(2)
 
-            st.dataframe(season_df.drop(columns=["runs", "balls", "4s", "6s"]).sort_values(["player_name", "season"]), use_container_width=True, hide_index=True)
+            st.dataframe(
+                season_df.drop(columns=["runs", "balls", "4s", "6s"]).sort_values(["player_name", "season"]),
+                use_container_width=True, hide_index=True
+            )
 
             # Batting and Bowling Divider
             st.divider()
@@ -240,25 +245,26 @@ if st.session_state.load_data:
             # ─────── Table 3: Overall Bowling Summary ───────
             st.subheader("Overall Bowling Summary")
             st.markdown("**Statistics on: Dismissal Types by Bowler**")
-            res_bowl = supabase_anon.table("player_data_bowling").select("*").in_("player_link", player_urls).execute()
+
+            # Minimal change: fetch bowling via player_id too (full history), same players
+            res_bowl = supabase_anon.table("player_data_bowling").select("*").in_("player_id", player_ids).execute()
             bowling_df = pd.DataFrame(res_bowl.data)
 
             if not bowling_df.empty:
                 if "player_name" not in bowling_df.columns or bowling_df["player_name"].isna().all():
                     bowling_df = bowling_df.merge(
-                        selected_links,
+                        selected_links[["player_id", "player_name"]].drop_duplicates(),
                         how="left",
-                        left_on="player_link",
-                        right_on="player_url",
+                        on="player_id",
                         validate="many_to_one"
                     )
 
                 for col in ["innings", "overs", "wickets", "runs_conceded", "maidens", "top_4_w", "bottom_4_w", "bowled", "caught", "lbw", "c_and_b", "stumped", "other_wicket"]:
                     bowling_df[col] = pd.to_numeric(bowling_df[col], errors="coerce").fillna(0)
 
-                # Create temporary column for bowling enconomy
+                # Create temporary column for bowling economy
                 bowling_df["valid_overs"] = convert_decimal_overs_to_float(bowling_df["overs"])
-                # calcualte balls bowled to show overs correctly
+                # calculate balls bowled to show overs correctly
                 bowling_df["balls_bowled"] = convert_overs_to_balls(bowling_df["overs"])
 
                 overall_bowl = bowling_df.groupby("player_name").agg({
@@ -267,7 +273,7 @@ if st.session_state.load_data:
                     "bottom_4_w": "sum", "bowled": "sum", "caught": "sum",
                     "lbw": "sum", "c_and_b": "sum", "stumped": "sum",
                     "valid_overs": "sum","other_wicket": "sum"
-                }).reset_index() # include maidens by adding "maidens": "sum" above
+                }).reset_index()  # include maidens by adding "maidens": "sum" above
 
                 # new economy rate and overs display
                 overall_bowl["Economy"] = (overall_bowl["runs_conceded"] / overall_bowl["valid_overs"]).round(2)
@@ -275,24 +281,25 @@ if st.session_state.load_data:
                 overall_bowl["Overs"] = overall_bowl["balls_bowled"].apply(convert_balls_to_overs)
                 overall_bowl["Avg"] = (overall_bowl["runs_conceded"] / overall_bowl["wickets"]).round(2)
 
-                #overall_bowl["Economy"] = (overall_bowl["runs_conceded"] / overall_bowl["overs"]).round(2).replace([float("inf"), -float("inf")], 0) #original wrong formula
                 overall_bowl.rename(columns={
                     "top_4_w": "Top 4 Wickets", "bottom_4_w": "Tail Wickets",
                     "c_and_b": "C&B", "other_wicket": "Other","runs_conceded": "Runs Conceded","stumped": "Stumped",
                     "innings": "Innings", "overs": "Overs", "wickets": "Wickets", "lbw":"LBW","bowled":"Bowled","caught":"Caught"
-
                 }, inplace=True)
 
                 #### TEST BLOCK COLUMN REORDER
                 desired_bowl_cols = [
                     "player_name", "Innings", "Overs","Wickets","Avg" ,"Runs Conceded", "Economy",
                     "SR", "Top 4 Wickets", "Tail Wickets", "Bowled", "Caught", "LBW", "C&B", "Stumped", "Other", "valid_overs", "balls_bowled"
-                ] # maidens to be added here if included in groupby statement
+                ]  # maidens to be added here if included in groupby statement
 
                 overall_bowl = reorder_columns(overall_bowl, desired_bowl_cols)
 
-                # Drop the valid over column and show the dataframe
-                st.dataframe(overall_bowl.drop(columns=["valid_overs","balls_bowled","Runs Conceded"]).sort_values("Wickets", ascending=False), use_container_width=True, hide_index=True)
+                # Drop the helper cols and show the dataframe
+                st.dataframe(
+                    overall_bowl.drop(columns=["valid_overs","balls_bowled","Runs Conceded"]).sort_values("Wickets", ascending=False),
+                    use_container_width=True, hide_index=True
+                )
 
                 # ─────── Table 4: Season-by-Season Bowling Summary ───────
                 st.subheader("Season-by-Season Bowling Stats")
@@ -305,9 +312,8 @@ if st.session_state.load_data:
                 if selected_players_bowl:
                     season_bowl = season_bowl[season_bowl["player_name"].isin(selected_players_bowl)]
 
-                # Create temporary column for bowling enconomy
+                # Helpers
                 season_bowl["valid_overs"] = convert_decimal_overs_to_float(season_bowl["overs"])
-                # calcualte balls bowled to show overs correctly
                 season_bowl["balls_bowled"] = convert_overs_to_balls(season_bowl["overs"])
 
                 season_bowl = season_bowl.groupby(["player_name", "season"]).agg({
@@ -329,15 +335,17 @@ if st.session_state.load_data:
                     "top_4_w": "Top 4 Wickets", "bottom_4_w": "Tail Wickets",
                     "c_and_b": "C&B", "other_wicket": "Other","runs_conceded": "Runs Conceded","stumped": "Stumped",
                     "innings": "Innings", "wickets": "Wickets", "lbw":"LBW","bowled":"Bowled","caught":"Caught",
-
                 }, inplace=True)
 
                 #### TEST BLOCK COLUMN REORDER
                 desired_bowl_season_cols = [
                     "player_name", "season", "Innings", "Overs", "Wickets","Avg" ,"Runs Conceded", "Economy",
                     "SR","Top 4 Wickets", "Tail Wickets", "Bowled", "Caught", "LBW", "C&B", "Stumped", "Other", "valid_overs", "balls_bowled"
-                ] #Include "maidens" here to display if added to the groupby statement
+                ]  # Include "maidens" here to display if added to the groupby statement
 
                 season_bowl = reorder_columns(season_bowl, desired_bowl_season_cols)
 
-                st.dataframe(season_bowl.drop(columns=["valid_overs","balls_bowled","Runs Conceded"]).sort_values(["player_name", "season"]), use_container_width=True, hide_index=True)
+                st.dataframe(
+                    season_bowl.drop(columns=["valid_overs","balls_bowled","Runs Conceded"]).sort_values(["player_name", "season"]),
+                    use_container_width=True, hide_index=True
+                )
