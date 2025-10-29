@@ -100,7 +100,7 @@ def get_player_links():
 player_links_df = get_player_links()
 
 # Select Season
-seasons = sorted(player_links_df["season"].dropna().unique())
+seasons = sorted(player_links_df["season"].dropna().unique(), reverse=True)
 season = st.selectbox("Select Season", seasons)
 
 # Select Grade based on Season
@@ -349,3 +349,107 @@ if st.session_state.load_data:
                     season_bowl.drop(columns=["valid_overs","balls_bowled","Runs Conceded"]).sort_values(["player_name", "season"]),
                     use_container_width=True, hide_index=True
                 )
+
+
+# ─────────────────────────────
+# Wickets Tab (neater chip layout + open in new tab)
+# ─────────────────────────────
+if st.session_state.load_data:
+    st.divider()
+    st.subheader("Wickets - Batting And Bowling Wicket Videos")
+
+    @st.cache_data(ttl=300)
+    def fetch_wickets(player_ids: list, field: str):
+        """Fetch wickets for given players (batting or bowling)."""
+        if not player_ids:
+            return pd.DataFrame()
+        sel_cols = "id,created_at,match_link,match_id,player_id_bat,player_link_bat,team_bat,player_id_bowl,player_link_bowl,team_bowl,wicket,how_out,how_out_norm"
+        res = (
+            supabase_anon.table("wickets")
+            .select(sel_cols)
+            .in_(field, player_ids)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return pd.DataFrame(res.data)
+
+    def render_wicket_list(title: str, field: str, players_df: pd.DataFrame):
+        """Render a tidy inline button list per player."""
+        st.markdown(f"### {title}")
+
+        if players_df.empty:
+            st.info("No players found.")
+            return
+
+        ids = players_df["player_id"].dropna().unique().tolist()
+        wk_df = fetch_wickets(ids, field)
+        if wk_df.empty:
+            st.info("No wicket videos found for these players.")
+            return
+
+        # Normalise labels
+        wk_df["how_out_label"] = wk_df["how_out_norm"].fillna("unknown")
+        wk_df.loc[wk_df["how_out_label"].eq("unknown"), "how_out_label"] = wk_df["how_out"].fillna("unknown")
+
+        players_sorted = players_df.dropna().sort_values("player_name")
+
+        # CSS for nice chip layout
+        st.markdown("""
+        <style>
+        .wicket-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            margin: 0.3rem 0 1rem 0.5rem;
+        }
+        .wicket-chip {
+            background-color: #f8f9fa;
+            border: 1px solid #d0d0d0;
+            border-radius: 8px;
+            padding: 0.3rem 0.6rem;
+            font-size: 0.9rem;
+            white-space: nowrap;
+            text-decoration: none;
+            color: #333;
+        }
+        .wicket-chip:hover {
+            background-color: #e9ecef;
+            border-color: #adb5bd;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        for _, rowp in players_sorted.iterrows():
+            pid = rowp["player_id"]
+            pname = rowp["player_name"]
+            sub = wk_df[wk_df[field] == pid].copy()
+
+            st.markdown(f"**{pname}**")
+
+            if sub.empty:
+                st.caption("— no videos —")
+                continue
+
+            sub = sub.sort_values("created_at", ascending=False)
+            chips = []
+            for i, rec in enumerate(sub.itertuples(), start=1):
+                label = rec.how_out_label or "unknown"
+                if i == 1:
+                    label += " (latest)"
+                chips.append(
+                    f'<a href="{rec.wicket}" target="_blank" rel="noopener" class="wicket-chip">{label}</a>'
+                )
+
+            html_block = f'<div class="wicket-container">{" ".join(chips)}</div>'
+            st.markdown(html_block, unsafe_allow_html=True)
+
+    # Use same player list you already have
+    team_players = selected_links[["player_id", "player_name"]].drop_duplicates()
+
+    tab_bat, tab_bowl = st.tabs(["Batting Wickets", "Bowling Wickets"])
+    with tab_bat:
+        render_wicket_list("Batting Wickets", "player_id_bat", team_players)
+    with tab_bowl:
+        render_wicket_list("Bowling Wickets", "player_id_bowl", team_players)
+
+
