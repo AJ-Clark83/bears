@@ -204,7 +204,8 @@ if st.session_state.load_data:
             overall.rename(columns={"innings": "Innings"}, inplace=True)
 
             st.dataframe(
-                overall.drop(columns=["runs", "balls", "4s", "6s"]).sort_values("Average", ascending=False),
+                #overall.drop(columns=["runs", "balls", "4s", "6s"]).sort_values("Average", ascending=False),
+                overall.drop(columns=["balls"]).sort_values("Average", ascending=False),
                 use_container_width=True, hide_index=True
             )
 
