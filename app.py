@@ -198,7 +198,7 @@ if st.session_state.load_data:
 
             overall["SR"] = ((overall["runs"] / overall["balls"]) * 100).round(2).replace([float("inf"), -float("inf")], 0)
             overall["Average"] = filtered.groupby("player_name")["runs"].mean().round(2).reset_index(drop=True)
-            overall["% Boundary Runs"] = (((overall["4s"]*4)+(overall["6s"]*6))/(overall["runs"])).round(2)
+            overall["% Boundary Runs"] = ((((overall["4s"]*4)+(overall["6s"]*6))/(overall["runs"]))*100).round(2)
             overall["Avg. boundary per inns."] = ((overall["4s"])+(overall["6s"])) / (overall["innings"]).round(2)
 
             overall.rename(columns={"innings": "Innings"}, inplace=True)
@@ -232,7 +232,7 @@ if st.session_state.load_data:
 
             season_df["SR"] = ((season_df["runs"] / season_df["balls"]) * 100).round(2).replace([float("inf"), -float("inf")], 0)
             season_df["Average"] = filtered.groupby(["player_name", "season"])["runs"].mean().round(2).reset_index(drop=True)
-            season_df["% Boundary Runs"] = (((season_df["4s"] * 4) + (season_df["6s"] * 6)) / (season_df["runs"])).round(2)
+            season_df["% Boundary Runs"] = ((((season_df["4s"] * 4) + (season_df["6s"] * 6)) / (season_df["runs"]))*100).round(2)
             season_df["Avg. 4s per inns."] = (season_df["4s"] / season_df["innings"]).round(2)
             season_df["Avg. 6s per inns."] = (season_df["6s"] / season_df["innings"]).round(2)
 
