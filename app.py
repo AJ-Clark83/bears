@@ -198,8 +198,8 @@ if st.session_state.load_data:
 
             overall["SR"] = ((overall["runs"] / overall["balls"]) * 100).round(2).replace([float("inf"), -float("inf")], 0)
             overall["Average"] = filtered.groupby("player_name")["runs"].mean().round(2).reset_index(drop=True)
-            overall["Avg. 4s per inns."] = (overall["4s"] / overall["innings"]).round(2)
-            overall["Avg. 6s per inns."] = (overall["6s"] / overall["innings"]).round(2)
+            overall["% Boundary Runs"] = overall["runs"] / ((overall["4s"]*4)+(overall["6s"]*6))
+            overall["Avg. boundary per inns."] = ((overall["4s"])+(overall["6s"])) / (overall["innings"]).round(2)
 
             overall.rename(columns={"innings": "Innings"}, inplace=True)
 
